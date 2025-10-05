@@ -64,12 +64,27 @@ Before designing or deploying such a system:
 
 ---
 
+## Where the files run and how
+# Listener 1 (Raspberry Pi):
+Execute.py listens to the Radio FM frequencies and broadcasts encrypted message to the Central Server.
+
+# Listener 2 (Raspberry Pi):
+Execute.py listens to the Radio FM frequencies and broadcasts encrypted message to the Central Server.
+
+# Central Server (Raspberry Pi):
+Listen.py listens to the messages from the receivers, decrypts it and pushes it to the database.
+
+# app.py:
+Creates the Flask application and waits for http connections and web socket connections. Web sockets are used for real-time updates.
+
+# index.html:
+This is the layout of our Dashboard interface.
 ## 🧾 License
 Open for research, education, and ethical experimentation only.  
 All use must comply with relevant **radio laws, privacy frameworks, and ethical standards**.
 
 ---
 
-**Author:** *Concept Development Team*  
+**Author:** *Rodrigo Russo*  
 **Repository Type:** Concept / Research Prototype  
 **Version:** 0.1 – Draft  
