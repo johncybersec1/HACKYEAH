@@ -1,0 +1,200 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Reconet Dashboard</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<style>
+body {
+    margin:0; font-family: 'Segoe UI', sans-serif; background:#19183B; color:#F9F5F0; padding: 20px;
+}
+h1,h3 { margin-bottom: 20px; font-weight:700; color:#F9F5F0; }
+#map { height:50vh; border-radius:10px; margin-bottom:20px; box-shadow:0 4px 15px rgba(0,0,0,0.5);}
+.card { border-radius:10px; box-shadow:0 4px 20px rgba(0,0,0,0.5); color:#fff;}
+.table-container { max-height:400px; overflow-y:auto; margin-bottom:20px; }
+.table { background:#1c1f3a; border-radius:8px; color:#fff; width:100%; }
+.table th { background:#252851; color:#FFC900; position: sticky; top:0; }
+.table td, .table tbody, .table tbody tr {
+    background-color: #1c1f3a !important;
+    color: #F9F5F0 !important;
+}
+.table tbody tr:hover {
+    background-color: #252851 !important;
+}
+.chart-container { background:#1c1f3a; padding:15px; border-radius:10px; box-shadow:0 4px 20px rgba(0,0,0,0.4); margin-bottom:20px; color:#fff; height:250px; }
+.btn-secondary { background:#252851; border:none; color:#FFC900; }
+.btn-secondary:hover { background:#3b3f6f; }
+.card-stat { font-size:1.5rem; font-weight:bold; }
+.card-title { font-weight:700; }
+</style>
+</head>
+<body>
+<div class="container-fluid">
+<h1 class="text-center">Reconet Dashboard</h1>
+
+<!-- ---------------- Stats Cards ---------------- -->
+<div class="row mb-4">
+  <div class="col-md-4">
+    <div class="card p-3 text-center" style="background:#FF6384;">
+      <div class="card-title">Total Devices</div>
+      <div id="stat-devices" class="card-stat" style="color:#19183B;">0</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card p-3 text-center" style="background:#36A2EB;">
+      <div class="card-title">Total Signals</div>
+      <div id="stat-signals" class="card-stat" style="color:#19183B;">0</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card p-3 text-center" style="background:#FFCE56;">
+      <div class="card-title">Unique Locations</div>
+      <div id="stat-locations" class="card-stat" style="color:#19183B;">0</div>
+    </div>
+  </div>
+</div>
+
+<!-- ---------------- Charts ---------------- -->
+<div class="row mb-4">
+  <div class="col-md-6">
+    <div class="chart-container">
+      <canvas id="pieChart"></canvas>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="chart-container">
+      <canvas id="barChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- ---------------- Map ---------------- -->
+<div id="map"></div>
+
+<!-- ---------------- Tables ---------------- -->
+<div class="row mt-4">
+  <div class="col-md-6">
+    <h3>Devices</h3>
+    <div class="table-container">
+      <div id="devices"></div>
+    </div>
+    <div class="d-flex justify-content-between mb-4">
+      <button onclick="loadDevices(currentDevicePage-1)" class="btn btn-sm btn-secondary">Prev</button>
+      <button onclick="loadDevices(currentDevicePage+1)" class="btn btn-sm btn-secondary">Next</button>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <h3>Signals Detected</h3>
+    <div class="table-container">
+      <div id="messages"></div>
+    </div>
+    <div class="d-flex justify-content-between mb-4">
+      <button onclick="loadMessages(currentMsgPage-1)" class="btn btn-sm btn-secondary">Prev</button>
+      <button onclick="loadMessages(currentMsgPage+1)" class="btn btn-sm btn-secondary">Next</button>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+const socket = io();
+const map = L.map('map').setView([50.5, 23.5], 7);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(map);
+let markers = [];
+let currentDevicePage = 1;
+let currentMsgPage = 1;
+
+const chartColors = ['#FF6384','#36A2EB','#FFCE56','#4BC0C0','#9966FF','#FF9F40'];
+
+// ---------------- WebSocket Map ----------------
+socket.on("map_update", (data)=>{
+  markers.forEach(m=>map.removeLayer(m));
+  markers=[];
+  const grouped={};
+  data.forEach(m=>{
+    if(!m.lat||!m.lon) return;
+    const key=`${m.lat},${m.lon}`;
+    if(!grouped[key]) grouped[key]=[];
+    grouped[key].push(m);
+  });
+  Object.entries(grouped).forEach(([coord,msgs])=>{
+    const [lat,lon] = coord.split(",").map(Number);
+    const marker = L.marker([lat,lon]).addTo(map);
+    let popupHtml = `<b>${msgs.length} message(s)</b><br/>`;
+    msgs.forEach(m=>{
+      popupHtml+=`<div><small>${m.timestamp}</small><br/><b>${m.source}</b>: ${m.message}</div><hr/>`;
+    });
+    marker.bindPopup(popupHtml);
+    markers.push(marker);
+  });
+
+  const uniqueDevices = new Set(data.map(d=>d.source));
+  const uniqueLocations = new Set(data.map(d=>`${d.lat},${d.lon}`));
+  document.getElementById('stat-devices').innerText = uniqueDevices.size;
+  document.getElementById('stat-signals').innerText = data.length;
+  document.getElementById('stat-locations').innerText = uniqueLocations.size;
+
+  updateCharts(data);
+});
+
+// ---------------- Charts ----------------
+const pieCtx = document.getElementById('pieChart').getContext('2d');
+const barCtx = document.getElementById('barChart').getContext('2d');
+let pieChart = new Chart(pieCtx, { type:'pie', data:{ labels:[], datasets:[{label:'Signals per Frequency', data:[], backgroundColor: chartColors }] }, options:{responsive:true, maintainAspectRatio:false} });
+let barChart = new Chart(barCtx, { type:'bar', data:{ labels:[], datasets:[{label:'Messages per Device', data:[], backgroundColor: chartColors }] }, options:{responsive:true, maintainAspectRatio:false, scales:{y:{beginAtZero:true}}} });
+
+function updateCharts(data){
+  const freqCounts = {};
+  data.forEach(m=>{
+    const match = m.message.match(/Frequency ([0-9.]+) MHz/);
+    if(match) freqCounts[match[1]] = (freqCounts[match[1]]||0)+1;
+  });
+  pieChart.data.labels = Object.keys(freqCounts);
+  pieChart.data.datasets[0].data = Object.values(freqCounts);
+  pieChart.update();
+
+  const deviceCounts = {};
+  data.forEach(m=>{ deviceCounts[m.source]=(deviceCounts[m.source]||0)+1; });
+  barChart.data.labels = Object.keys(deviceCounts);
+  barChart.data.datasets[0].data = Object.values(deviceCounts);
+  barChart.update();
+}
+
+// ---------------- Tables ----------------
+async function loadDevices(page=1){
+  if(page<1) return;
+  const res = await fetch(`/api/devices?page=${page}`);
+  const data = await res.json();
+  if(data.length===0) return;
+  currentDevicePage=page;
+  let html='<table class="table table-sm table-hover"><thead><tr><th>Source</th><th>First Seen</th><th>Last Seen</th></tr></thead><tbody>';
+  data.forEach(d=>html+=`<tr><td>${d.source}</td><td>${d.first_seen}</td><td>${d.last_seen}</td></tr>`);
+  html+='</tbody></table>';
+  document.getElementById('devices').innerHTML=html;
+}
+
+async function loadMessages(page=1){
+  if(page<1) return;
+  const res = await fetch(`/api/messages?page=${page}`);
+  const data = await res.json();
+  if(data.length===0) return;
+  currentMsgPage=page;
+  let html='<table class="table table-sm table-hover"><thead><tr><th>Time</th><th>Source</th><th>Location</th><th>Message</th><th>Hash</th></tr></thead><tbody>';
+  data.forEach(m=>html+=`<tr><td>${m.timestamp}</td><td>${m.source}</td><td>${m.location}</td><td>${m.message}</td><td>${m.filehash}</td></tr>`);
+  html+='</tbody></table>';
+  document.getElementById('messages').innerHTML=html;
+}
+
+// initial load
+loadDevices();
+loadMessages();
+setInterval(()=>{ loadDevices(currentDevicePage); loadMessages(currentMsgPage); }, 30000);
+
+</script>
+</body>
+</html>
+
